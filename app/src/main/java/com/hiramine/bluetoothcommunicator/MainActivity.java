@@ -21,6 +21,7 @@ import android.widget.Toast;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener
@@ -33,6 +34,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 		// 定数
 		public static final int MESSAGE_STATECHANGE    = 1;
 		public static final int MESSAGE_READ           = 2;
+		public static final int MESSAGE_WRITTEN        = 3;
 		public static final int STATE_NONE             = 0;
 		public static final int STATE_CONNECT_START    = 1;
 		public static final int STATE_CONNECT_FAILED   = 2;
@@ -51,6 +53,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 		{
 			private BluetoothSocket mBluetoothSocket;
 			private InputStream     mInput;
+			private OutputStream    mOutput;
 
 			// コンストラクタ
 			public ConnectionThread( BluetoothDevice bluetoothdevice )
@@ -59,6 +62,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 				{
 					mBluetoothSocket = bluetoothdevice.createRfcommSocketToServiceRecord( UUID_SPP );
 					mInput = mBluetoothSocket.getInputStream();
+					mOutput = mBluetoothSocket.getOutputStream();
 				}
 				catch( IOException e )
 				{
@@ -140,6 +144,22 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 				setState( STATE_DISCONNECTED );
 			}
 
+			// バイト列送信
+			public void write( byte[] buf )
+			{
+				try
+				{
+					synchronized( BluetoothService.this )
+					{
+						mOutput.write( buf );
+					}
+					mHandler.obtainMessage( MESSAGE_WRITTEN ).sendToTarget();
+				}
+				catch( IOException e )
+				{
+					Log.e( "BluetoothService", "Failed : mBluetoothSocket.close()", e );
+				}
+			}
 		}
 
 		// コンストラクタ
@@ -186,6 +206,27 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
 			mConnectionThread.cancel();
 		}
+
+		// バイト列送信（非同期）
+		public void write( byte[] out )
+		{
+			ConnectionThread connectionThread;
+			synchronized( this )
+			{
+				if( STATE_CONNECTED != mState )
+				{
+					return;
+				}
+				connectionThread = mConnectionThread;
+			}
+			// 非同期送信
+			// （送受信で同期（送信と受信を排他処理（≒同期処理））させる実装も可能だが、
+			// 　そうすると、mInput.read( buf ) が完了するまで、mOutput.write( buf ) が実施されなくなる。
+			// 　mInput.read( buf ) は文字列を受信すると完了するので、文字列を受信しなければいつまでたっても完了しない。
+			// 　文字列が頻繁に送信されてくる場合はよいが、文字列がぜんぜん送信されてこない場合は、
+			// 　こちらからの送信がいつまでたっても実施されないことになる。なので、受信と送信は非同期。）
+			connectionThread.write( out );
+		}
 	}
 
 	// 定数
@@ -203,6 +244,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 	// GUIアイテム
 	private Button mButton_Connect;    // 接続ボタン
 	private Button mButton_Disconnect;    // 切断ボタン
+	private Button mButton_WriteHello;        // 「Hello」送信ボタン
+	private Button mButton_WriteWorld;        // 「World」送信ボタン
 
 	// Bluetoothサービスから情報を取得するハンドラ
 	private final Handler mHandler = new Handler()
@@ -228,6 +271,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 							// GUIアイテムの有効無効の設定
 							// 切断ボタン、文字列送信ボタンを有効にする
 							mButton_Disconnect.setEnabled( true );
+							mButton_WriteHello.setEnabled( true );
+							mButton_WriteWorld.setEnabled( true );
 							break;
 						case BluetoothService.STATE_CONNECTION_LOST:            // 接続ロスト
 							//Toast.makeText( MainActivity.this, "Lost connection to the device.", Toast.LENGTH_SHORT ).show();
@@ -236,6 +281,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 							// GUIアイテムの有効無効の設定
 							// 切断ボタン、文字列送信ボタンを無効にする
 							mButton_Disconnect.setEnabled( false );
+							mButton_WriteHello.setEnabled( false );
+							mButton_WriteWorld.setEnabled( false );
 							break;
 						case BluetoothService.STATE_DISCONNECTED:            // 切断完了
 							// GUIアイテムの有効無効の設定
@@ -277,6 +324,12 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 						}
 					}
 					break;
+				case BluetoothService.MESSAGE_WRITTEN:
+					// GUIアイテムの有効無効の設定
+					// 文字列送信ボタンを有効にする（連打対策で無効になっているボタンを復帰させる）
+					mButton_WriteHello.setEnabled( true );
+					mButton_WriteWorld.setEnabled( true );
+					break;
 			}
 		}
 	};
@@ -292,6 +345,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 		mButton_Connect.setOnClickListener( this );
 		mButton_Disconnect = (Button)findViewById( R.id.button_disconnect );
 		mButton_Disconnect.setOnClickListener( this );
+		mButton_WriteHello = (Button)findViewById( R.id.button_writehello );
+		mButton_WriteHello.setOnClickListener( this );
+		mButton_WriteWorld = (Button)findViewById( R.id.button_writeworld );
+		mButton_WriteWorld.setOnClickListener( this );
 
 		// Bluetoothアダプタの取得
 		BluetoothManager bluetoothManager = (BluetoothManager)getSystemService( Context.BLUETOOTH_SERVICE );
@@ -316,6 +373,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 		// GUIアイテムの有効無効の設定
 		mButton_Connect.setEnabled( false );
 		mButton_Disconnect.setEnabled( false );
+		mButton_WriteHello.setEnabled( false );
+		mButton_WriteWorld.setEnabled( false );
 
 		// デバイスアドレスが空でなければ、接続ボタンを有効にする。
 		if( !mDeviceAddress.equals( "" ) )
@@ -434,6 +493,20 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 			disconnect();            // 切断
 			return;
 		}
+		if( mButton_WriteHello.getId() == v.getId() )
+		{
+			mButton_WriteHello.setEnabled( false );    // 文字列送信ボタンの無効化（連打対策）
+			mButton_WriteWorld.setEnabled( false );    // 文字列送信ボタンの無効化（連打対策）
+			write( "Hello" );
+			return;
+		}
+		if( mButton_WriteWorld.getId() == v.getId() )
+		{
+			mButton_WriteHello.setEnabled( false );    // 文字列送信ボタンの無効化（連打対策）
+			mButton_WriteWorld.setEnabled( false );    // 文字列送信ボタンの無効化（連打対策）
+			write( "World" );
+			return;
+		}
 	}
 
 	// 接続
@@ -466,5 +539,20 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 		// 切断
 		mBluetoothService.disconnect();
 		mBluetoothService = null;
+	}
+
+	// 文字列送信
+	private void write( String string )
+	{
+		if( null == mBluetoothService )
+		{    // mBluetoothServiceがnullなら切断済みか、切断中。
+			return;
+		}
+
+		// 終端に改行コードを付加
+		String stringSend = string + "\r\n";
+
+		// バイト列送信
+		mBluetoothService.write( stringSend.getBytes() );
 	}
 }
