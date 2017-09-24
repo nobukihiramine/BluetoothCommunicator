@@ -13,6 +13,7 @@
     <string name="device_address">Device Address : </string>
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
+    <string name="read_string">Read string : </string>
 
     <!-- DeviceListActivity トースト用 -->
     <string name="unknown_device">Unknown device</string>

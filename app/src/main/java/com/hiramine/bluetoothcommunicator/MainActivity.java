@@ -20,6 +20,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener
@@ -31,6 +32,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
 		// 定数
 		public static final int MESSAGE_STATECHANGE    = 1;
+		public static final int MESSAGE_READ           = 2;
 		public static final int STATE_NONE             = 0;
 		public static final int STATE_CONNECT_START    = 1;
 		public static final int STATE_CONNECT_FAILED   = 2;
@@ -48,6 +50,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 		private class ConnectionThread extends Thread
 		{
 			private BluetoothSocket mBluetoothSocket;
+			private InputStream     mInput;
 
 			// コンストラクタ
 			public ConnectionThread( BluetoothDevice bluetoothdevice )
@@ -55,6 +58,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 				try
 				{
 					mBluetoothSocket = bluetoothdevice.createRfcommSocketToServiceRecord( UUID_SPP );
+					mInput = mBluetoothSocket.getInputStream();
 				}
 				catch( IOException e )
 				{
@@ -91,6 +95,19 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 							// 接続失敗時の処理の実体は、cancel()。
 							break;
 						case STATE_CONNECTED:        // 接続済み（Bluetoothデバイスから送信されるデータ受信）
+							byte[] buf = new byte[1024];
+							int bytes;
+							try
+							{
+								bytes = mInput.read( buf );
+								mHandler.obtainMessage( MESSAGE_READ, bytes, -1, buf ).sendToTarget();
+							}
+							catch( IOException e )
+							{
+								setState( STATE_CONNECTION_LOST );
+								cancel();    // スレッド終了。
+								break;
+							}
 							break;
 						case STATE_CONNECTION_LOST:    // 接続ロスト
 							// 接続ロスト時の処理の実体は、cancel()。
@@ -174,11 +191,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 	// 定数
 	private static final int REQUEST_ENABLEBLUETOOTH = 1; // Bluetooth機能の有効化要求時の識別コード
 	private static final int REQUEST_CONNECTDEVICE   = 2; // デバイス接続要求時の識別コード
+	private static final int READBUFFERSIZE          = 1024;    // 受信バッファーのサイズ
 
 	// メンバー変数
 	private BluetoothAdapter mBluetoothAdapter;    // BluetoothAdapter : Bluetooth処理で必要
 	private String mDeviceAddress = "";    // デバイスアドレス
 	private BluetoothService mBluetoothService;    // BluetoothService : Bluetoothデバイスとの通信処理を担う
+	private byte[] mReadBuffer        = new byte[READBUFFERSIZE];
+	private int    mReadBufferCounter = 0;
 
 	// GUIアイテム
 	private Button mButton_Connect;    // 接続ボタン
@@ -223,6 +243,38 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 							mButton_Connect.setEnabled( true );
 							mBluetoothService = null;    // BluetoothServiceオブジェクトの解放
 							break;
+					}
+					break;
+				case BluetoothService.MESSAGE_READ:
+					byte[] abyteRead = (byte[])msg.obj;
+					int iCountBuf = msg.arg1;
+					for( int i = 0; i < iCountBuf; i++ )
+					{
+						byte c = abyteRead[i];
+						if( '\r' == c )
+						{    // 終端
+							mReadBuffer[mReadBufferCounter] = '\0';
+							// GUIアイテムへの反映
+							( (TextView)findViewById( R.id.textview_read ) ).setText( new String( mReadBuffer, 0, mReadBufferCounter ) );
+							mReadBufferCounter = 0;
+						}
+						else if( '\n' == c )
+						{
+							;    // 何もしない
+						}
+						else
+						{    // 途中
+							if( ( READBUFFERSIZE - 1 ) > mReadBufferCounter )
+							{    // mReadBuffer[READBUFFERSIZE - 2] までOK。
+								// mReadBuffer[READBUFFERSIZE - 1] は、バッファー境界内だが、「\0」を入れられなくなるのでNG。
+								mReadBuffer[mReadBufferCounter] = c;
+								mReadBufferCounter++;
+							}
+							else
+							{    // バッファーあふれ。初期化
+								mReadBufferCounter = 0;
+							}
+						}
 					}
 					break;
 			}
@@ -339,6 +391,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 				}
 				( (TextView)findViewById( R.id.textview_devicename ) ).setText( strDeviceName );
 				( (TextView)findViewById( R.id.textview_deviceaddress ) ).setText( mDeviceAddress );
+				( (TextView)findViewById( R.id.textview_read ) ).setText( "" );
 				break;
 		}
 		super.onActivityResult( requestCode, resultCode, data );
