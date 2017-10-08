@@ -11,7 +11,7 @@ Bluetoothモジュールと通信をする「Bluetooth通信ソフト」
 - Android Support Repository
 
 ## Author : 作者
-Nobuki HIRAMINE : [http://www.hiramine.com](http://www.hiramine.com)
+- Nobuki HIRAMINE : [http://www.hiramine.com](http://www.hiramine.com)
 
 ## License : ライセンス
 ```
